@@ -1,167 +1,234 @@
-<div align="center">
-  <img src="./frontend/.github/assets/template-light.webp" alt="App Icon" width="80" />
-  <h1>Local Voice AI</h1>
-  <p>This project's goal is to enable anyone to easily build a powerful, private, local voice AI agent.</p>
-  <p>A full-stack, Dockerized AI voice assistant with speech, text, and voice synthesis delivered via WebRTC powered by <a href="https://docs.livekit.io/agents?utm_source=local-voice-ai">LiveKit Agents</a>.</p>
-</div>
+# ELearn Recruitment System
 
-## Overview
+ML-powered recruitment platform built with **FastAPI**, **React + TypeScript + Tailwind**, and a **hybrid feature-learning matching engine** (Sentence-BERT semantic similarity + TF-IDF keyword overlap + skill-coverage Jaccard + experience proximity).
 
-This repo contains everything needed to run a real-time AI voice assistant locally using:
+> **Deep-dive explanation with flow diagrams:** [`docs/SYSTEM_EXPLAINED.md`](docs/SYSTEM_EXPLAINED.md) — architecture, data model, matching-engine internals, sequence diagrams, security model, and more.
 
-- **LiveKit** for WebRTC realtime audio + rooms.
-- **LiveKit Agents (Python)** to orchestrate the STT → LLM → TTS pipeline.
-- **Nemotron Speech (default)** for speech-to-text, exposed via an OpenAI-compatible API.
-- **Whisper (via VoxBox)** as an optional fallback STT backend.
-- **llama.cpp (llama-server)** for running local LLMs (OpenAI-compatible API).
-- **Kokoro** for text-to-speech voice synthesis.
-- **Next.js + Tailwind** frontend UI.
-- Fully containerized via Docker Compose.
+---
 
-## Getting Started
+## What's in the box
 
-Windows uses the PowerShell command; Linux and OSX use the bash command. Both will prompt you to choose CPU or Nvidia GPU.
+- **Admin dashboard** — overview charts, jobs CRUD, candidates browser, applications pipeline (Applied → Hired), match explorer, PDF reports.
+- **Candidate portal** — profile editor, resume upload/download, job search, "My Matches" (top-N ranked open jobs), application tracking.
+- **Resume parsing** — PDF, DOCX, TXT → extracts skills, experience, education automatically and updates the candidate profile.
+- **Hybrid matching engine** — combines four signals into a single 0–100% score:
+  | Signal              | Weight | What it measures                                                       |
+  | ------------------- | ------ | ---------------------------------------------------------------------- |
+  | Skill coverage      | 0.45   | Required-skill Jaccard + bonus for nice-to-have                        |
+  | Experience fit      | 0.15   | Smooth proximity to the job's experience window                        |
+  | Semantic similarity | 0.25   | Sentence-BERT (`all-MiniLM-L6-v2`) cosine of resume vs job description |
+  | Keyword overlap     | 0.15   | TF-IDF cosine (1–2 grams)                                              |
 
-Windows:
-```bash
-./compose-up.ps1
+  Falls back gracefully to TF-IDF if the transformer can't be loaded (e.g., offline).
+
+- **PDF reports** — per-candidate (top matching jobs) and per-job (top matching candidates).
+
+---
+
+## Project layout
+
+```text
+ELearn/
+├── backend/                  FastAPI + SQLAlchemy + ML
+│   ├── app/
+│   │   ├── core/             security (JWT, bcrypt), deps
+│   │   ├── models/           SQLAlchemy ORM
+│   │   ├── schemas/          Pydantic I/O
+│   │   ├── routers/          auth, jobs, candidates, resumes,
+│   │   │                      applications, matching, reports, admin
+│   │   ├── services/         resume_parser, matching_service,
+│   │   │                      report_service, skill_taxonomy
+│   │   ├── main.py           FastAPI entrypoint
+│   │   ├── seed.py           Sample data: 1 admin + 20 jobs +
+│   │   │                                  50 candidates + ~125 apps
+│   │   ├── config.py         env-driven settings
+│   │   └── database.py       SQLAlchemy engine/session
+│   ├── uploads/resumes/      Stored resume files (server-managed names)
+│   ├── requirements.txt
+│   └── .env.example
+└── frontend/                 React 18 + Vite + TypeScript + Tailwind
+    ├── src/
+    │   ├── api/              axios client + endpoint wrappers
+    │   ├── store/            Zustand auth store
+    │   ├── components/       Layout, ProtectedRoute, UI primitives
+    │   ├── pages/
+    │   │   ├── candidate/    Dashboard, Profile, Resumes, Jobs,
+    │   │   │                 JobDetail, Matches, Applications
+    │   │   └── admin/        Overview, Jobs, Candidates,
+    │   │                     Applications, Matching, Reports
+    │   ├── App.tsx           Routing
+    │   └── main.tsx
+    ├── package.json
+    └── tailwind.config.js
 ```
 
-Mac / Linux:
-```bash
-chmod +x filename.sh
-./compose-up.sh
+---
+
+## Running on a fresh machine
+
+### 0. Prerequisites
+
+| Tool    | Min version | Notes                                                       |
+| ------- | ----------- | ----------------------------------------------------------- |
+| Python  | 3.11+       | https://www.python.org/downloads/ (tick "Add to PATH")      |
+| Node.js | 18+         | https://nodejs.org/ — Node 22 LTS tested                    |
+| Git     | any         | https://git-scm.com/downloads                               |
+
+> First-time setup downloads ~500 MB of Python packages (mostly PyTorch) and ~80 MB Sentence-BERT model. **Internet required for the very first run.** Subsequent runs work offline.
+
+### 1. Get the code
+
+Either clone from a Git repo, or copy the project folder. **Before zipping/copying, delete these to keep things clean:**
+
+- `backend/.venv/`
+- `backend/elearn_recruitment.db`
+- `backend/uploads/resumes/*`
+- `frontend/node_modules/`
+- `frontend/dist/`
+
+The `.gitignore` files in each subproject already exclude these from Git.
+
+### 2. Backend (Terminal 1)
+
+```powershell
+cd <project>\backend
+
+# Create and activate venv
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1   # PowerShell
+# .\.venv\Scripts\activate.bat # cmd.exe
+# source .venv/bin/activate    # macOS / Linux
+
+# Install dependencies (~5 min the first time)
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# Configure environment
+Copy-Item .env.example .env
+# IMPORTANT: open .env and set a strong SECRET_KEY:
+# python -c "import secrets; print(secrets.token_urlsafe(64))"
+
+# Seed sample data (admin + 20 jobs + 50 candidates + ~125 applications)
+python -m app.seed
+
+# Run the API
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Once it's up, visit [http://localhost:3000](http://localhost:3000) in your browser to start chatting.
+Backend is now live at:
 
-### Notes on models and resources
+- API: http://localhost:8000
+- Swagger docs: http://localhost:8000/docs
 
-- The LLM runs via `llama-server` and auto-downloads from Hugging Face on first boot (no manual model download needed).
-- The default repo is `unsloth/Qwen3-4B-Instruct-2507-GGUF` (change `LLAMA_HF_REPO` to use a different model or quant).
-- The API exposes the model under an alias (default `qwen3-4b` via `LLAMA_MODEL_ALIAS`); the agent uses that via `LLAMA_MODEL`.
-- STT defaults to Nemotron (`NEMOTRON_MODEL_NAME`, `NEMOTRON_MODEL_ID`, `STT_*` env vars).
-- If you switch to Whisper fallback, configure `VOXBOX_HF_REPO_ID` and run compose with `--profile whisper`.
-- You can swap out the LLM/STT/TTS URLs to use cloud models if you want (see `livekit_agent/src/agent.py`).
-- The first run downloads a lot of data (often tens of GB) for models and supporting libraries. GPU-enabled images are bigger and take longer.
-- Installing takes a while. On an i9-14900hx it takes about 10 minutes to get everything ready.
-- Ongoing VRAM/RAM usage depends heavily on the model, context size, and GPU offload settings.
+### 3. Frontend (Terminal 2)
 
-### Startup readiness
-
-`llama_cpp` returns 503s while the model is downloading/loading/warming up. Nemotron also needs startup time on first boot to download weights. The Compose stack includes healthchecks, and `livekit_agent` waits for both `llama_cpp` and `nemotron` to be healthy before starting.
-
-## Architecture
-
-Each service is containerized and communicates over a shared Docker network:
-
-- `livekit`: WebRTC signaling server
-- `livekit_agent`: Python agent (LiveKit Agents SDK)
-- `nemotron`: Speech-to-text (NVIDIA Nemotron Speech, OpenAI-compatible API)
-- `whisper` (optional profile): Fallback STT backend (VoxBox + Whisper)
-- `llama_cpp`: Local LLM provider (`llama-server`)
-- `kokoro`: TTS engine
-- `frontend`: Next.js client UI
-
-## Agent
-
-The agent entrypoint is `livekit_agent/src/agent.py`. It uses the LiveKit Agents OpenAI-compatible plugins to talk to local inference services:
-
-- `openai.STT` → Nemotron by default (configurable via `STT_PROVIDER` / `STT_BASE_URL` / `STT_MODEL`)
-- Optional `whisper` profile can be selected as a fallback STT backend.
-- `openai.LLM` → `llama_cpp` (`llama-server`)
-- `openai.TTS` → the Kokoro container
-- `silero.VAD` for voice activity detection
-
-## Environment variables
-
-Example env files:
-
-- `.env` (used by Docker Compose)
-- `frontend/.env.example`
-- `livekit_agent/.env.example`
-
-For local (non-Docker) development, use `.env.local` files:
-
-- `frontend/.env.local`
-- `livekit_agent/.env.local`
-
-### LiveKit URLs (important)
-
-The LiveKit URL is used in two different contexts:
-
-- `LIVEKIT_URL` is the internal, server-to-server address (e.g. `ws://livekit:7880`) used by containers like the agent.
-- `NEXT_PUBLIC_LIVEKIT_URL` is the browser-reachable LiveKit address returned by the frontend API (e.g. `ws://localhost:7880`).
-
-The frontend only signs tokens; it does not connect to LiveKit directly. The browser connects using the `serverUrl` returned by `/api/connection-details`, so make sure `NEXT_PUBLIC_LIVEKIT_URL` points to a reachable LiveKit endpoint.
-
-### LLM (llama.cpp) settings
-
-The Compose stack runs `llama-server` with `--hf-repo` so models are fetched automatically and cached on disk:
-
-- `LLAMA_HF_REPO`: Hugging Face repo, optionally with `:quant` (e.g. `unsloth/Qwen3-4B-Instruct-2507-GGUF:q4_k_m`)
-- `LLAMA_MODEL_ALIAS`: Name exposed via the API (and returned from `/v1/models`)
-- `LLAMA_MODEL`: What the agent requests (should match `LLAMA_MODEL_ALIAS`)
-- `LLAMA_BASE_URL`: LLM base URL for the agent (default `http://llama_cpp:11434/v1`)
-- `LLAMA_HOST_PORT`: Host port mapping for llama-server (default `11436`)
-
-Models are cached under `inference/llama/models` (mounted into the container as `/models`).
-
-### STT settings (Nemotron default)
-
-- `STT_PROVIDER`: `nemotron` (default) or `whisper`
-- `STT_BASE_URL`: OpenAI-compatible STT base URL used by the agent
-- `STT_MODEL`: STT model id (default `nemotron-speech-streaming`)
-- `STT_API_KEY`: Optional API key for OpenAI-compatible STT servers
-- `NEMOTRON_MODEL_NAME`: Hugging Face model id loaded by the Nemotron container
-- `NEMOTRON_MODEL_ID`: Model id returned from `/v1/models`
-
-Whisper fallback is available as a profile-only service:
-
-```bash
-docker compose --profile whisper up
+```powershell
+cd <project>\frontend
+npm install         # first time only (~1-2 min)
+npm run dev
 ```
 
-When using Whisper fallback, set:
+Open http://localhost:5173.
 
-- `STT_PROVIDER=whisper`
-- `STT_BASE_URL=http://whisper:80/v1`
-- `STT_MODEL=Systran/faster-whisper-small` (or your preferred VoxBox model)
+### 4. Sign in
 
-## Development
+| Role      | Email                  | Password      |
+| --------- | ---------------------- | ------------- |
+| Admin     | `admin@elearn.io`      | `Admin@12345` |
+| Candidate | any seeded candidate * | `Password@123`|
 
-Use `.env.local` files in both `frontend` and `livekit_agent` dirs to set the dev environment variables for the project. This way, you can run either of those with `pnpm dev` or `uv run python src/agent.py dev` and test them without needing to build the Docker projects.
+\* Candidate emails follow the pattern `<first>.<last><idx>@example.com` — the admin "Candidates" page lists them all.
 
-## Rebuild / redeploy
+---
 
-```bash
-docker compose down -v --remove-orphans
-docker compose up --build
+## Running on a LAN (so other devices can use it)
+
+1. Backend already binds `0.0.0.0` above; it's reachable at `http://<your-ip>:8000`.
+2. Update the frontend dev script in `frontend/package.json`:
+   ```json
+   "dev": "vite --host 0.0.0.0"
+   ```
+3. Add the LAN origin to `backend/.env`:
+   ```
+   CORS_ORIGINS=http://localhost:5173,http://192.168.1.42:5173
+   ```
+4. Open Windows Firewall (or your OS firewall) for ports `8000` and `5173`.
+
+---
+
+## Production-ish build
+
+```powershell
+# Backend without auto-reload, multi-worker
+cd backend
+.\.venv\Scripts\Activate.ps1
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+
+# Frontend static build
+cd ..\frontend
+npm run build       # outputs frontend/dist/
+npm run preview     # serves dist/ on :5173
 ```
 
-## Project structure
+For a real production deployment:
 
-```
-.
-├─ frontend/        # Next.js UI client
-├─ inference/       # Local inference services (llama/nemotron/whisper/kokoro)
-├─ livekit/         # LiveKit server config
-├─ livekit_agent/   # Python voice agent (LiveKit Agents)
-├─ docker-compose.yml
-└─ docker-compose.gpu.yml
-```
+- Put **Nginx** or **Caddy** in front of both, terminate TLS.
+- Serve `frontend/dist/` as static files.
+- Reverse-proxy `/api` → `http://localhost:8000`.
+- Use **PostgreSQL** instead of SQLite (set `DATABASE_URL=postgresql+psycopg://user:pass@host/db`, install `psycopg[binary]`).
+- Run uvicorn behind `gunicorn -k uvicorn.workers.UvicornWorker` or use `uvicorn --workers N`.
 
-## Requirements
+---
 
-- Docker + Docker Compose
-- No GPU required (CPU works)
-- Recommended RAM: 12GB+
+## API surface (a few highlights)
 
-## Credits
+| Method | Path                                       | Auth      | Purpose                                      |
+| ------ | ------------------------------------------ | --------- | -------------------------------------------- |
+| POST   | `/api/auth/register`                       | public    | Create candidate account                     |
+| POST   | `/api/auth/login`                          | public    | OAuth2 password grant → JWT                  |
+| GET    | `/api/auth/me`                             | any       | Current user                                 |
+| GET    | `/api/candidates/me` / `PUT`               | candidate | Read / update own profile                    |
+| GET    | `/api/candidates`                          | admin     | Search / list candidates                     |
+| GET    | `/api/jobs`, `POST`, `PUT/{id}`, `DELETE`  | mixed     | Job CRUD (write = admin)                     |
+| POST   | `/api/resumes/upload`                      | candidate | Upload PDF/DOCX/TXT — auto-parses skills     |
+| GET    | `/api/resumes/{id}/download`               | owner+adm | Stream original file                         |
+| POST   | `/api/applications`                        | candidate | Apply (computes & caches match score)        |
+| GET    | `/api/applications`                        | admin     | List with filters: status, min_score, etc.   |
+| PATCH  | `/api/applications/{id}/status`            | admin     | Move through the pipeline                    |
+| GET    | `/api/matches/jobs-for-me?top=20`          | candidate | Best-matching jobs                           |
+| GET    | `/api/matches/candidates-for-job/{job_id}` | admin     | Best-matching candidates for a job           |
+| GET    | `/api/admin/overview`                      | admin     | Dashboard counts + chart series              |
+| GET    | `/api/reports/candidate/{id}.pdf`          | admin     | Per-candidate PDF report                     |
+| GET    | `/api/reports/job/{id}.pdf`                | admin     | Per-job PDF report                           |
 
-- Built with LiveKit: https://livekit.io/
-- Uses LiveKit Agents: https://docs.livekit.io/agents/
-- STT via NVIDIA Nemotron Speech: https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b
-- Whisper fallback via VoxBox: https://pypi.org/project/vox-box/
-- Local LLM via llama.cpp: https://github.com/ggml-org/llama.cpp
-- TTS via Kokoro: https://github.com/remsky/kokoro
+Full interactive list: http://localhost:8000/docs
+
+---
+
+## Security notes
+
+- All secrets (JWT key, DB URL) come from environment variables — none are hardcoded.
+- Passwords are bcrypt-hashed; verification uses bcrypt's constant-time `checkpw`.
+- Resume uploads: extension + size whitelisted, stored under server-generated UUID names, paths resolved with directory-traversal protection.
+- File reads of user-uploaded resumes only happen on server-controlled paths — client-supplied filenames are never used as paths.
+- No use of `eval`, `exec`, `pickle`, or dynamic `__import__()` on untrusted data.
+- CORS is restricted to the origins listed in `CORS_ORIGINS`.
+
+---
+
+## Troubleshooting
+
+| Symptom                                                            | Fix                                                                                                              |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `pip install` hangs on `torch`                                     | First-time download is large (~600 MB). Be patient or run on faster network.                                     |
+| `huggingface_hub` symlink warning on Windows                       | Harmless — caching just uses more disk. Enable Developer Mode in Windows Settings to silence it.                 |
+| `Could not validate credentials` on every API call after restart   | Your token expired (24 h default). Log in again.                                                                 |
+| Login returns 500 with `value is not a valid email address`        | You changed the seed admin email to a reserved TLD (e.g. `.local`). Use a real TLD.                              |
+| Frontend can't reach backend                                       | Confirm uvicorn is running on :8000 and `CORS_ORIGINS` in `.env` includes your frontend origin.                  |
+| Match scores look low for everybody                                | Candidates need either skills on profile or an uploaded resume (resume text feeds the semantic similarity term). |
+
+---
+
+## License
+
+Proprietary / TBD.
